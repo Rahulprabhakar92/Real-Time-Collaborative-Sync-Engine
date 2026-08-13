@@ -1,0 +1,15 @@
+# 1. The Heavy Bloat (Never push dependencies)
+node_modules/
+
+# 2. The Secrets (Crucial: Never push environment variables)
+.env
+.env.local
+.env.development
+
+# 3. Build Artifacts (If you are using TypeScript)
+dist/
+build/
+
+# 4. Logs and OS files
+npm-debug.log*
+.DS_Store
