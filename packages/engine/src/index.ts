@@ -4,8 +4,8 @@ export type Id=[agent:string,seq:number]
 export type Item={
     content:string,
     Id:Id,
-    originLeft:Id,
-    originRight:Id,
+    originLeft:Id|null,
+    originRight:Id|null,
     deleted:boolean
 }
 export type Version=Record<string,number>
@@ -33,7 +33,7 @@ const idEq = (a: Id | null, b: Id | null): boolean => (
     a == b || (a != null && b != null && a[0] === b[0] && a[1] === b[1])
 );
 
-export function findItemIdxatid(doc:Doc,id:Id){
+export function findItemIdxatid(doc:Doc,id:Id|null){
     const idx=doc.content.findIndex(c=>idEq(c.Id,id))
     return idx === -1 ? null :idx
 }
@@ -48,11 +48,11 @@ export function integrate(doc:Doc,newItem:Item){
 
     let scanning=false
     const left=findItemIdxatid(doc,newItem.originLeft) ?? -1;
-    const bestIdx=left+1;
+    let bestIdx=left+1;
     const right=newItem.originRight===null?doc.content.length:findItemIdxatid(doc,newItem.originRight)!
 
     for(let i =bestIdx;;i++){
-        if(!scanning) i=bestIdx;
+        if(!scanning) bestIdx=i;
         if(i===doc.content.length) break;
         if(i===right) break;
 
@@ -85,7 +85,7 @@ export function findItemAtpos(doc:Doc,pos:number,stickEnd:boolean=false){
 
 export function localinsertOne(doc:Doc,pos:number,agent:string,text:string){
 
-    const seq=doc.version[agent]
+    const seq=doc.version[agent]??-1;
 
     const actualIdx=findItemAtpos(doc,pos)
 
@@ -94,8 +94,8 @@ export function localinsertOne(doc:Doc,pos:number,agent:string,text:string){
         content:text,
         Id:[agent,seq+1],
         deleted:false,
-        originLeft:doc.content[actualIdx-1]?.Id,
-        originRight:doc.content[actualIdx]?.Id
+        originLeft:doc.content[actualIdx-1]?.Id ?? null,
+        originRight:doc.content[actualIdx]?.Id ?? null
     })
 
 }
@@ -108,14 +108,18 @@ export function localInsert(doc:Doc,pos:number,agent:string,text:string){
 }
 
 export function localDelete(doc:Doc,agent:string,pos:number,length:number=1){
-    for(let i =0;i<doc.content.length;i++){
+    const deletedItems:Item[]=[];
+    for(let i =0;i<length;i++){
         const actualIdx=findItemAtpos(doc,pos);
         doc.content[actualIdx].deleted=true;
+        deletedItems.push(doc.content[actualIdx])
     }
+    return deletedItems;
+
 }
 
-export function isinVersion(id:Id,version:Version): boolean{
-    if(id===null) return true;
+export function isinVersion(id:Id |null |undefined,version:Version): boolean{
+    if(id== null) return true;
     const [agent,seq]=id;
     const highestseq=version[agent];
 
@@ -154,6 +158,7 @@ export function mergeInto(dest:Doc,src:Doc){
             integrate(dest,op)
             missing[i]=null;
             mergerOnthisPass++;
+            remaining--;
         }
         if(mergerOnthisPass===0) throw new Error("Not Making progress")
     }
