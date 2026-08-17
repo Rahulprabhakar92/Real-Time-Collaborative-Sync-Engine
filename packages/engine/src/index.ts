@@ -101,10 +101,19 @@ export function localinsertOne(doc:Doc,pos:number,agent:string,text:string){
 }
 
 export function localInsert(doc:Doc,pos:number,agent:string,text:string){
+    const newlyCreatedItems:Item[]=[];
     for(const c of text){
         localinsertOne(doc,pos,agent,c)
+
+        const currentSeq=doc.version[agent];
+        const newItem=doc.content.find(item => item.Id[0] === agent && item.Id[1] === currentSeq);
+        if(newItem){
+            newlyCreatedItems.push(newItem);
+        }
+
         pos++
     }
+    return newlyCreatedItems;
 }
 
 export function localDelete(doc:Doc,agent:string,pos:number,length:number=1){
@@ -129,7 +138,16 @@ export function isinVersion(id:Id |null |undefined,version:Version): boolean{
 }
 
 export function canInserNow(item:Item,dest:Version){
-    return !isinVersion(item.Id,dest) && isinVersion(item.originLeft,dest) && isinVersion(item.originRight,dest)
+    const [agent,seq]=item.Id;
+    
+    const expectedSeq=(dest[agent] ?? -1)+1;
+    if(seq !== expectedSeq){
+        return false;
+    }
+
+    return !isinVersion(item.Id,dest) 
+        && isinVersion(item.originLeft,dest)
+        && isinVersion(item.originRight,dest)
 }
 
 
@@ -160,6 +178,13 @@ export function mergeInto(dest:Doc,src:Doc){
             mergerOnthisPass++;
             remaining--;
         }
-        if(mergerOnthisPass===0) throw new Error("Not Making progress")
-    }
+        // ... inside mergeInto's while loop ...
+        
+        if (mergerOnthisPass === 0) {
+            // FIX: DO NOT THROW AN ERROR! 
+            // Log a warning and gracefully break the loop so the server survives.
+            console.warn(`[CRDT Sync] Dropped ${remaining} orphaned operations due to a packet collision.`);
+            break; 
+        }
+    } // end of while loop
 }

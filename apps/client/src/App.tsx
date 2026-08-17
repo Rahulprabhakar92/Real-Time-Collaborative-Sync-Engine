@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import './App.css'
-import {Item, createDoc, Doc, getContent, localDelete, localinsertOne, mergeInto } from '@sync/engine';
+import {Item, createDoc, Doc, getContent, localDelete, localinsertOne, mergeInto, localInsert } from '@sync/engine';
 
 
 
@@ -26,6 +26,31 @@ export  function App() {
      docId.current=idFromUrl
   }
 
+
+
+  useEffect(() => {
+    const handleOffline = () => {
+      console.log("Browser network went offline!");
+      setIsOnline(false);
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close(); 
+      }
+    };
+
+    const handleOnline = () => {
+      console.log("Browser network came back online!");
+
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
 
 
   useEffect(()=>{
@@ -88,32 +113,36 @@ export  function App() {
     const newText=e.target.value;
     const curserPosition=e.target.selectionStart;
 
-    let OperationItem:Item|undefined;
-    let OperationType="";
-
 
     if(newText.length>text.length){
-      //INSERT
-      const insertedChar=newText[curserPosition-1];
-      localinsertOne(docRef.current,curserPosition-1,agentId.current,insertedChar)
-       OperationItem=docRef.current.content.find(item=>item.Id[0]===agentId.current && item.Id[1] === docRef.current.version[agentId.current])
-       OperationType="INSERT"
+      //INSERt
+      const insertCount = newText.length - text.length;
+      const startIndex=curserPosition - insertCount;
+      const insertedString=newText.substring(startIndex,curserPosition);
+
+      const newItems=localInsert(docRef.current,startIndex,agentId.current,insertedString);
+
+      if(newItems.length > 0){
+        if(wsRef.current?.readyState === WebSocket.OPEN){
+          wsRef.current.send(JSON.stringify({type:"SYNC_BATCH",items:newItems}))
+        }else{
+          offlineQueue.current.push(...newItems);
+        }
+      }
        
     }else if(newText.length<text.length){
       //DELETE
-      const deletedItem=localDelete(docRef.current,agentId.current,curserPosition)
-      OperationItem=deletedItem[0];
-      OperationType="DELETE"
+      const deletedCount=text.length - newText.length;
+      const deletedItems=localDelete(docRef.current,agentId.current,curserPosition,deletedCount);
 
-    }
+     if(deletedItems.length > 0 ){
+        if(wsRef.current?.readyState === WebSocket.OPEN){
+          wsRef.current.send(JSON.stringify({type:"SYNC_BATCH",items:deletedItems}))
+        }else{
+          offlineQueue.current.push(...deletedItems);
+        }
+     }
 
-    if(OperationItem){
-      if(wsRef.current?.readyState === WebSocket.OPEN){
-         wsRef.current?.send(JSON.stringify({type:OperationType,item:OperationItem}))
-      }else{
-        //we are Offline
-        offlineQueue.current.push(OperationItem);
-      }
     }
     setText(getContent(docRef.current))
   }

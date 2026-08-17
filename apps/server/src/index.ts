@@ -40,19 +40,19 @@ async function startServer() {
                 if(!masterDoc){
 
 
-                const historicalData=await OperationModel.find({documentId}).sort({timeStamp:1})
+                const historicalData=await OperationModel.find({documentId}).sort({timestamp:1})
 
                 masterDoc=createDoc()
+
+                const tempDoc:Doc=createDoc();
                 
-              
-
-
+            
                     for(const Op of historicalData){
-                    const tempDoc:Doc=createDoc();
                     const itemToinsert=Op.item as unknown as Item
                     tempDoc.content.push(itemToinsert) 
-                    mergeInto(masterDoc,tempDoc)
+
                 }
+                mergeInto(masterDoc,tempDoc);
 
                 activeDocuments.set(documentId,masterDoc)
             }
