@@ -45,6 +45,17 @@ const removePresenceForClient = (documentId: string, userId?: string) => {
   }
 };
 
+const broadcastPresenceSnapshot = (documentId: string) => {
+  const roomUsers = roomPresence.get(documentId);
+  const snapshot = roomUsers ? Array.from(roomUsers.values()) : [];
+
+  wss.clients.forEach((client: CustomWebsocket) => {
+    if (client.readyState === 1 && client.docId === documentId) {
+      client.send(JSON.stringify({ type: "presence-list", users: snapshot }));
+    }
+  });
+};
+
 async function startServer() {
   try {
     const connectingString = process.env.MONGODB as unknown as string;
@@ -65,6 +76,7 @@ async function startServer() {
 
       ws.on("close", () => {
         removePresenceForClient(documentId, ws.userId);
+        broadcastPresenceSnapshot(documentId);
       });
 
       try {
@@ -100,12 +112,7 @@ async function startServer() {
             const roomUsers = roomPresence.get(documentId) ?? new Map();
             roomUsers.set(stableUserId, presenceUser);
             roomPresence.set(documentId, roomUsers);
-
-            wss.clients.forEach((client: CustomWebsocket) => {
-              if (client !== ws && client.readyState === 1 && client.docId === documentId) {
-                client.send(JSON.stringify({ type: "presence", user: presenceUser }));
-              }
-            });
+            broadcastPresenceSnapshot(documentId);
 
             return;
           }

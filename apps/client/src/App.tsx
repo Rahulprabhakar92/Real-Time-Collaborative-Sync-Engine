@@ -24,6 +24,7 @@ type RemoteUser = Account & {
 };
 
 const USERNAME_KEY = 'sync-studio-username';
+const SESSION_ACCOUNT_KEY = 'sync-studio-session-account';
 const COLORS = ['#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#f472b6'];
 
 const getStoredUsername = (): string => {
@@ -34,11 +35,38 @@ const getStoredUsername = (): string => {
   }
 };
 
-const buildAccount = (username: string): Account => ({
-  id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-  username: username.trim().slice(0, 20) || 'Guest',
-  color: COLORS[Math.abs(username.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % COLORS.length],
-});
+const getSessionAccount = (username: string): Account => {
+  try {
+    const raw = sessionStorage.getItem(SESSION_ACCOUNT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Account;
+      if (parsed?.id && parsed?.username) {
+        return {
+          ...parsed,
+          username: username.trim().slice(0, 20) || parsed.username || 'Guest',
+        };
+      }
+    }
+  } catch {
+    // ignore and recreate a valid account for this tab session
+  }
+
+  const nextAccount: Account = {
+    id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    username: username.trim().slice(0, 20) || 'Guest',
+    color: COLORS[Math.abs(username.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % COLORS.length],
+  };
+
+  try {
+    sessionStorage.setItem(SESSION_ACCOUNT_KEY, JSON.stringify(nextAccount));
+  } catch {
+    // ignore storage failures
+  }
+
+  return nextAccount;
+};
+
+const buildAccount = (username: string): Account => getSessionAccount(username);
 
 const clampCursor = (value: number, maxLength: number) => Math.min(Math.max(value, 0), Math.max(maxLength, 0));
 
@@ -68,7 +96,7 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [account, setAccount] = useState<Account | null>(() => {
     const savedUsername = getStoredUsername();
-    return savedUsername ? buildAccount(savedUsername) : null;
+    return savedUsername ? getSessionAccount(savedUsername) : null;
   });
   const [draftUsername, setDraftUsername] = useState(getStoredUsername());
   const [remoteUsers, setRemoteUsers] = useState<Record<string, RemoteUser>>({});
@@ -100,6 +128,32 @@ export function App() {
   useEffect(() => {
     if (!account) return;
     localStorage.setItem(USERNAME_KEY, account.username);
+    try {
+      sessionStorage.setItem(SESSION_ACCOUNT_KEY, JSON.stringify(account));
+    } catch {
+
+    }
+  }, [account]);
+
+  useEffect(() => {
+    if (!account) return;
+
+    const cleanupExpiredUsers = () => {
+      setRemoteUsers((current) => {
+        const nextUsers: Record<string, RemoteUser> = {};
+
+        for (const [id, user] of Object.entries(current)) {
+          if (id !== account.id && Date.now() - user.lastSeen < 30000) {
+            nextUsers[id] = user;
+          }
+        }
+
+        return nextUsers;
+      });
+    };
+
+    const timer = window.setInterval(cleanupExpiredUsers, 5000);
+    return () => window.clearInterval(timer);
   }, [account]);
 
   useEffect(() => {
@@ -147,8 +201,10 @@ export function App() {
   useEffect(() => {
     if (!account) return;
 
+    const currentAccount = account;
+
     function connect() {
-      wsRef.current = new WebSocket(`ws://localhost:4000?docId=${docId.current}&userId=${account.id}`);
+      wsRef.current = new WebSocket(`ws://localhost:4000?docId=${docId.current}&userId=${currentAccount.id}`);
 
       wsRef.current.onopen = () => {
         setIsOnline(true);
@@ -196,6 +252,22 @@ export function App() {
               lastSeen: Date.now(),
             },
           }));
+          return;
+        }
+
+        if (payload.type === 'presence-list') {
+          const nextUsers = Array.isArray(payload.users) ? (payload.users) : [];
+          const normalized: Record<string, RemoteUser> = {};
+
+          for (const user of nextUsers) {
+            if (!user?.id || user.id === currentAccount.id) continue;
+            normalized[user.id] = {
+              ...user,
+              lastSeen: Date.now(),
+            };
+          }
+
+          setRemoteUsers(normalized);
           return;
         }
 
