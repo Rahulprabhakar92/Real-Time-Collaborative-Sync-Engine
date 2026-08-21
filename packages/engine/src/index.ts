@@ -42,7 +42,7 @@ export function integrate(doc:Doc,newItem:Item){
     const [agent,seq]=newItem.Id
     const lastseen=doc.version[agent] ?? -1;
 
-    if(seq !== lastseen +1) throw new Error("Operation OPut of Bounds")
+    if(seq !== lastseen +1) throw new Error("Operation Out of Bounds")
     
     doc.version[agent]=seq;
 
@@ -149,8 +149,6 @@ export function canInserNow(item:Item,dest:Version){
         && isinVersion(item.originLeft,dest)
         && isinVersion(item.originRight,dest)
 }
-
-
 export function mergeInto(dest:Doc,src:Doc){
     //sync deletion
     for(const srcItem of src.content){
@@ -188,3 +186,7 @@ export function mergeInto(dest:Doc,src:Doc){
         }
     } // end of while loop
 }
+
+
+
+
